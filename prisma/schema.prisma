@@ -1,0 +1,77 @@
+// prisma/schema.prisma
+// SQLite-first for frictionless deploys. Switch provider to "postgresql" + a real DATABASE_URL when you need durable multi-instance persistence.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// ── ANALYSIS RESULTS ──────────────────────────────────────────────────────────
+model Analysis {
+  id            String   @id @default(cuid())
+  claimHash     String   @unique // SHA-256 of normalizedClaim
+  rawClaim      String
+  normalizedClaim String
+  verdict       String   // TRUE | FALSE | MIXED | UNVERIFIED
+  confidence    Int      // 0-100
+  headline      String
+  summary       String
+  category      String
+  reasoning     String   // JSON array
+  sources       String   // JSON array
+  evidenceBreakdown String // JSON object
+  radar         String   // JSON object
+  warnings      String   // JSON array
+  cacheStatus   String   @default("miss")
+  latencyMs     Int      @default(0)
+  synthesisMode String   @default("rules") // "rules" | "cached" | "claude" | "gemini" | "openrouter"
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([claimHash])
+  @@index([createdAt])
+  @@index([verdict])
+}
+
+// ── USER HISTORY (anonymous, keyed by session) ────────────────────────────────
+model HistoryEntry {
+  id           String   @id @default(cuid())
+  sessionId    String   // hashed client identifier (IP + UA fingerprint, not raw)
+  analysisId   String
+  claimPreview String   // first 120 chars of raw claim
+  verdict      String
+  confidence   Int
+  createdAt    DateTime @default(now())
+
+  @@index([sessionId, createdAt])
+}
+
+// ── RATE LIMIT BUCKETS ────────────────────────────────────────────────────────
+model RateLimitBucket {
+  id        String   @id @default(cuid())
+  key       String   @unique // "ip:<hash>:hour" or "ip:<hash>:day"
+  count     Int      @default(0)
+  resetAt   DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([key, resetAt])
+}
+
+// ── USAGE METRICS ─────────────────────────────────────────────────────────────
+model UsageEvent {
+  id           String   @id @default(cuid())
+  eventType    String   // "analysis" | "cache_hit" | "rate_limited" | "error"
+  synthesisMode String  @default("none")
+  latencyMs    Int      @default(0)
+  errorCode    String?
+  ipHash       String?  // hashed, not raw
+  createdAt    DateTime @default(now())
+
+  @@index([eventType, createdAt])
+  @@index([createdAt])
+}
